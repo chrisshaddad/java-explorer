@@ -1,0 +1,650 @@
+package filemanager;
+
+import java.awt.*;
+import java.awt.event.*;
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import java.util.*;
+import java.io.*;
+import java.nio.file.*;
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+import java.text.SimpleDateFormat;
+import javax.swing.event.ListSelectionEvent;
+import javax.swing.event.ListSelectionListener;
+
+public class FileManager {
+
+    /* Made by Christophe Haddad
+     * Java Explorer 
+     * No.Dossier: 1188n
+     */
+
+    /*!!!!!QUELQUES NOTES!!!!
+     *-on peut enlever tous les filter de chaque file.listFiles() pour voir les files invisibles
+     */
+    //definitions
+    private final Dimension dimension = new Dimension(1000, 700);
+    private final JFrame frame;
+    private final JPanel panel, topPanel, leftPanel, empty1, rightPanel, rightmostPanel, empty2, empty3;
+    private final JPanel titrePanel, buttonsPanel1, fileListePanel, buttonsPanel2, detailsPanel, bottomPanel;
+    private final JButton edit, copy, move, delete, search, newfold;
+    private final JButton sortName, sortExtension, sortDate, sortSize;
+    private final JLabel titre, driveInfo, folderInfo;
+    private final JList listeDrive, listeFile;
+    private final DefaultListModel listeDriveModel, listeFileModel;
+    private final DefaultTableModel tableModel;
+    private final JTable detailsTable;
+    private final JScrollPane listePane;
+    File[] arrayDrive;
+    File currentFile, parentFile;
+    static ArrayList<File> arrayFolders;
+    static ArrayList<String> arrayFiles;
+
+    FileManager() {
+//layout
+        frame = new JFrame(" File Manager ");
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setSize(dimension);
+        frame.setMinimumSize(dimension);
+
+        titre = new JLabel("Java Explorer");
+        titre.setForeground(Color.blue);
+        titre.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 20));
+
+        titrePanel = new JPanel();
+        titrePanel.add(titre);
+
+        edit = new JButton("Edit");
+        copy = new JButton("Copy");
+        move = new JButton("Move");
+        delete = new JButton("Delete");
+        search = new JButton("Search");
+        newfold = new JButton("New Folder");
+
+        sortName = new JButton("Sort by Name");
+        sortName.addActionListener(new TempSortListener());
+        sortExtension = new JButton("Sort by Extension");
+        sortExtension.addActionListener(new TempSortListener());
+        sortDate = new JButton("Sort by Date");
+        sortDate.addActionListener(new TempSortListener());
+        sortSize = new JButton("Sort by Size");
+        sortSize.addActionListener(new TempSortListener());
+
+        buttonsPanel1 = new JPanel(new FlowLayout(FlowLayout.CENTER, 30, 10));
+        buttonsPanel1.add(edit);
+        edit.addActionListener(new TempListener());
+        buttonsPanel1.add(copy);
+        copy.addActionListener(new TempListener());
+        buttonsPanel1.add(move);
+        move.addActionListener(new TempListener());
+        buttonsPanel1.add(delete);
+        delete.addActionListener(new TempListener());
+        buttonsPanel1.add(search);
+        search.addActionListener(new TempListener());
+        buttonsPanel1.add(newfold);
+        newfold.addActionListener(new TempListener());
+
+        buttonsPanel2 = new JPanel(new FlowLayout(FlowLayout.CENTER, 60, 10));
+        buttonsPanel2.setPreferredSize(new Dimension(100, 75));
+        buttonsPanel2.add(sortName);
+        buttonsPanel2.add(sortExtension);
+        buttonsPanel2.add(sortDate);
+        buttonsPanel2.add(sortSize);
+
+        topPanel = new JPanel();
+        topPanel.setLayout(new BorderLayout());
+        topPanel.add(titrePanel, BorderLayout.NORTH);
+        topPanel.add(buttonsPanel1, BorderLayout.SOUTH);
+
+        empty1 = new JPanel();
+        empty1.setBackground(Color.cyan);
+
+        leftPanel = new JPanel();
+        leftPanel.setLayout(new BorderLayout());
+        listeDriveModel = new DefaultListModel();
+
+        arrayDrive = File.listRoots();
+
+        for (File path : arrayDrive) {
+            listeDriveModel.addElement(path);
+        }
+
+        listeDrive = new JList(listeDriveModel);
+        listeDrive.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        listeDrive.addListSelectionListener(new driveListener());
+        listeDrive.setPreferredSize(new Dimension(125, 250));
+
+        fileListePanel = new JPanel();
+        listeFileModel = new DefaultListModel();
+        listeFile = new JList(listeFileModel);
+        listeFile.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+
+        listeFile.addListSelectionListener(new folderListener());
+        //on ajoute le cell renderer pour que les elements du liste seront des files et nonpas des String
+        listeFile.setCellRenderer(new DefaultListCellRenderer() {
+            public void setText(String text) {
+                File file = new File(text);
+                if (file.isDirectory()) {
+                    text = "Dir : " + file.getName();
+                } else if (file.isFile()) {
+                    text = "File : " + file.getName();
+                } else {
+                    text = file.getName();
+                }
+                super.setText(text);
+            }
+        });
+        listePane = new JScrollPane(listeFile, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        listePane.setPreferredSize(new Dimension(250, 400));
+
+        leftPanel.add(listeDrive, BorderLayout.WEST);
+        leftPanel.add(empty1, BorderLayout.CENTER);
+
+        rightPanel = new JPanel();
+        rightPanel.setLayout(new BorderLayout());
+
+        detailsPanel = new JPanel();
+
+        Object[] columnNames = {"Nom Fichier", "Taille", "Date", "File/Dir", "path", "extension"};
+        detailsTable = new JTable();
+        tableModel = new DefaultTableModel() {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+
+            @Override
+            //method pour rendre les colonnes a une class specifique 
+            public Class<?> getColumnClass(int colNum) {
+                switch (colNum) {
+                    case 1:
+                        return Long.class;
+                    case 2:
+                        return Long.class;
+                    default:
+                        return String.class;
+                }
+            }
+
+        };
+
+        tableModel.setColumnIdentifiers(columnNames);
+        detailsTable.setModel(tableModel);
+
+        //on met la colonne des extensions invisible pour l'arrangement facile
+        //et la colonne des paths pour les utiliser avec les different boutons
+        detailsTable.getColumnModel().getColumn(4).setMinWidth(0);
+        detailsTable.getColumnModel().getColumn(4).setMaxWidth(0);
+        detailsTable.getColumnModel().getColumn(5).setMinWidth(0);
+        detailsTable.getColumnModel().getColumn(5).setMaxWidth(0);
+
+        detailsTable.getTableHeader().setReorderingAllowed(false);
+        detailsTable.setAutoCreateRowSorter(true);
+
+        empty2 = new JPanel();
+        empty2.setBackground(Color.BLUE);
+
+        rightmostPanel = new JPanel();
+        rightmostPanel.setLayout(new BorderLayout());
+
+        rightmostPanel.add(new JScrollPane(detailsTable, JScrollPane.VERTICAL_SCROLLBAR_ALWAYS, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER), BorderLayout.NORTH);
+        rightmostPanel.add(empty2, BorderLayout.CENTER);
+        rightmostPanel.add(buttonsPanel2, BorderLayout.SOUTH);
+
+        empty3 = new JPanel();
+        empty3.setPreferredSize(new Dimension(30, 0));
+
+        rightPanel.add(listePane, BorderLayout.WEST);
+        rightPanel.add(rightmostPanel, BorderLayout.EAST);
+        rightPanel.add(empty3, BorderLayout.CENTER);
+
+        bottomPanel = new JPanel();
+        bottomPanel.setLayout(new BorderLayout());
+        driveInfo = new JLabel(" ");
+        folderInfo = new JLabel(" ");
+        bottomPanel.add(driveInfo, BorderLayout.NORTH);
+        bottomPanel.add(folderInfo, BorderLayout.SOUTH);
+        bottomPanel.add(empty3, BorderLayout.CENTER);
+        driveInfo.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
+        folderInfo.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 14));
+
+        panel = new JPanel();
+        panel.setLayout(new BorderLayout());
+        panel.add(topPanel, BorderLayout.NORTH);
+        panel.add(empty1, BorderLayout.CENTER);
+        panel.add(leftPanel, BorderLayout.WEST);
+        panel.add(rightPanel, BorderLayout.EAST);
+        panel.add(bottomPanel, BorderLayout.SOUTH);
+
+        frame.getContentPane().add(panel);
+        frame.pack();
+        frame.setVisible(true);
+
+    }
+
+    public class searchWindow extends JFrame {
+
+        private final JFrame searchW;
+        private final JPanel panelW, topPanelW, topPanelW1, topPanelW2, buttonPanelW, resultat;
+        private final JLabel motif, lieu;
+        private final JTextField motifT, lieuT;
+        private final JTextArea resultatA;
+        private final JButton go;
+
+        searchWindow() {
+
+       //window search
+            searchW = new JFrame(" Search ");
+            searchW.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+            searchW.setSize(new Dimension(500, 700));
+            searchW.setMinimumSize(new Dimension(500, 700));
+            searchW.setMaximumSize(new Dimension(500, 700));
+
+            motifT = new JTextField(17);
+            lieuT = new JTextField(17);
+            motif = new JLabel("Motif De Recherche: ");
+            lieu = new JLabel("Lieu De Recherche: ");
+            topPanelW1 = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            topPanelW1.add(motif);
+            topPanelW1.add(motifT);
+            topPanelW2 = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            topPanelW2.add(lieu);
+            topPanelW2.add(lieuT);
+            topPanelW = new JPanel();
+            topPanelW.setLayout(new BorderLayout());
+            topPanelW.add(topPanelW1, BorderLayout.NORTH);
+            topPanelW.add(topPanelW2, BorderLayout.SOUTH);
+
+            buttonPanelW = new JPanel(new FlowLayout(FlowLayout.CENTER));
+            go = new JButton("Go");
+
+            buttonPanelW.add(go);
+
+            resultatA = new JTextArea();
+            resultat = new JPanel();
+            resultat.setPreferredSize(new Dimension(440, 500));
+            resultat.setBorder(BorderFactory.createTitledBorder("Résultat"));
+            resultat.add(resultatA);
+
+            go.addActionListener(new ActionListener() {
+
+                @Override
+                public void actionPerformed(ActionEvent ae) {
+                    if (lieuT.getText().equals("") || motifT.getText().equals("")) {
+                        resultatA.setText("S'il vous plais remplir les deus Box");
+                    } else {
+                        String labelS = "";
+                        resultatA.setText("");
+                        arrayFolders = new ArrayList<File>();
+                        arrayFiles = new ArrayList<String>();
+                        String motifS = motifT.getText();
+                        String lieuS = lieuT.getText();
+                        for (File fil1 : File.listRoots()) {
+                            findFolder(lieuS, fil1);
+                        }
+                        if (arrayFolders.size() == 0) {
+                            resultatA.setText("Ce folder n'existe pas");
+                            return;
+                        }
+                        for (File fil2 : arrayFolders) {
+                            findFile(motifS, fil2);
+                        }
+                        if (arrayFiles.isEmpty()) {
+                            resultatA.setText("This file does not exist");
+                            return;
+                        }
+                        for (String filenames : arrayFiles) {
+                            labelS += filenames + "\n";
+                        }
+                        resultatA.setText(labelS);
+                    }
+                }
+            });
+
+            panelW = new JPanel();
+            panelW.setLayout(new BorderLayout());
+            panelW.add(topPanelW, BorderLayout.NORTH);
+            panelW.add(buttonPanelW, BorderLayout.CENTER);
+            panelW.add(resultat, BorderLayout.SOUTH);
+
+            searchW.getContentPane().add(panelW);
+            searchW.pack();
+            searchW.setVisible(true);
+        }
+    }
+
+    public static void main(String[] args) {
+        FileManager f = new FileManager();
+    }
+
+    private class driveListener implements ListSelectionListener {
+
+        public void valueChanged(ListSelectionEvent e) {
+            try {
+                File file1;
+                file1 = (File) ((JList) e.getSource()).getSelectedValue();
+                currentFile = file1;
+                File[] file1Array = file1.listFiles(new FileFilter() {
+                    @Override
+                    public boolean accept(File file) {
+                        return !file.isHidden();
+                    }
+                });
+                listeFileModel.clear();
+
+                for (int i = tableModel.getRowCount() - 1; i >= 0; i--) {
+                    tableModel.removeRow(i);
+                }
+                for (int i = 0; i < file1Array.length; i++) {
+                    listeFileModel.addElement(file1Array[i]);
+                    tableModel.addRow(getData(file1Array[i]));
+
+                }
+
+                listeFile.setModel(listeFileModel);
+                driveInfo.setText(driveInf(file1));
+                folderInfo.setText(fileInf(file1));
+            } catch (Exception exedrive) {
+            }
+        }
+
+    }
+
+    private class folderListener implements ListSelectionListener {
+
+        public void valueChanged(ListSelectionEvent e) {
+            try {
+                String value = listeFile.getSelectedValue().toString();
+                if (value != " : Niveau Superieur") {
+                    File file2;
+                    file2 = (File) ((JList) e.getSource()).getSelectedValue();
+                    currentFile = file2;
+                    parentFile = file2.getParentFile();
+                    if (file2.isDirectory()) {
+
+                        File[] file2Array = file2.listFiles(new FileFilter() {
+                            @Override
+                            public boolean accept(File file) {
+                                return !file.isHidden();
+                            }
+                        });
+                        listeFileModel.clear();
+
+                        for (int i = tableModel.getRowCount() - 1; i >= 0; i--) {
+                            tableModel.removeRow(i);
+                        }
+                        for (int i = 0; i < file2Array.length; i++) {
+
+                            tableModel.addRow(getData(file2Array[i]));
+                            listeFileModel.addElement(file2Array[i]);
+                        }
+                        listeFileModel.add(0, " : Niveau Superieur");
+                        listeFile.setModel(listeFileModel);
+                        folderInfo.setText(fileInf(file2));
+
+                    }
+                } else if (value == " : Niveau Superieur") {
+                    File file3;
+                    file3 = parentFile;
+                    parentFile = file3.getParentFile();
+                    currentFile = file3;
+                    File[] file3Array = file3.listFiles(new FileFilter() {
+                        @Override
+                        public boolean accept(File file) {
+                            return !file.isHidden();
+                        }
+                    });
+                    listeFileModel.clear();
+
+                    for (int i = tableModel.getRowCount() - 1; i >= 0; i--) {
+                        tableModel.removeRow(i);
+                    }
+                    for (int i = 0; i < file3Array.length; i++) {
+
+                        tableModel.addRow(getData(file3Array[i]));
+                        listeFileModel.addElement(file3Array[i]);
+                    }
+                    if (parentFile.canRead()) {
+                        listeFileModel.add(0, " : Niveau Superieur");
+                    }
+                    listeFile.setModel(listeFileModel);
+                    folderInfo.setText(fileInf(file3));
+                }
+
+            } catch (Exception exe) {
+            }
+        }
+
+    }
+
+    public static String driveInf(File f) {
+        String loc = f.getPath();
+        long totalSpace = (long) (f.getTotalSpace() * 9.31322574615479e-10);
+        long freeSpace = (long) (f.getUsableSpace() * 9.31322574615479e-10);
+        long usableSpace = totalSpace - freeSpace;
+        String s = "Current Root: " + loc + "Total Space: " + totalSpace + " GB Usable Space: " + usableSpace + " GB Free Space: " + freeSpace + " GB";
+        return s;
+    }
+
+    public static String fileInf(File f) {
+
+        File[] arrayInf = f.listFiles();
+
+        int numFold = 0, numFile = 0;
+        for (File arrayInf1 : arrayInf) {
+            if (arrayInf1.isDirectory()) {
+                numFold++;
+            } else {
+                numFile++;
+            }
+        }
+        String loc = f.getPath();
+        Path path = Paths.get(loc);
+        long size = (long) (size(f) * 0.0009765625);
+
+        String s = "Current Folder: " + loc + " Nb. of Files: " + numFile + " Nb. of Folders: " + numFold + " Total Size: " + size + " KB";
+        return s;
+    }
+
+    public static long size(File f) {
+        long size = 0;
+        File[] files = f.listFiles();
+        if (null == files || files.length == 0) {
+            return 0;
+        }
+        for (File file : files) {
+            if (file.isFile()) {
+                size += file.length();
+            }
+        }
+        return size;
+    }
+
+    public static Object[] getData(File file) {
+
+        SimpleDateFormat simple = new SimpleDateFormat("dd/MM/yyyy hh:mm:ss");
+        Object[] data = new Object[6];
+
+        data[0] = file.getName();
+
+        data[1] = file.length();
+
+        data[2] = simple.format(file.lastModified());
+
+        if (file.isDirectory()) {
+            data[3] = "Dir";
+        } else {
+            data[3] = "File";
+        }
+        data[4] = file;
+
+        String extension = "";
+        int i = file.getName().lastIndexOf('.');
+        if (i > 0) {
+            extension = file.getName().substring(i + 1);
+        }
+        data[5] = extension;
+
+        return data;
+    }
+
+    public class TempListener implements ActionListener {
+
+        public void actionPerformed(ActionEvent ae) {
+            try {
+                Object ob = ae.getSource();
+                if (ob == edit) {
+                    File file = (File) ((detailsTable.getValueAt(detailsTable.getSelectedRow(), 4)));
+                    try {
+                        Desktop.getDesktop().open(file);
+                    } catch (IOException ex) {
+                        JOptionPane.showMessageDialog(frame, ex.getMessage(), "Error", 0);
+                    }
+                }
+                if (ob == copy) {
+                    File file = (File) (detailsTable.getValueAt(detailsTable.getSelectedRow(), 4));
+                    String target = JOptionPane.showInputDialog(frame,
+                            "Enter the destination folder name", "Copy File", JOptionPane.QUESTION_MESSAGE);
+                    File targetFile = new File(target + "\\" + file.getName());
+                    try {
+                        if ((new File(target)).exists()) {
+                            Files.copy(file.toPath(), targetFile.toPath(), REPLACE_EXISTING);
+                        } else {
+                            JOptionPane.showMessageDialog(frame, "File Does Not Exist", "Error", 0);
+                        }
+                    } catch (IOException ex) {
+                        JOptionPane.showMessageDialog(frame, ex.getMessage(), "Error", 0);
+                    }
+                }
+
+                if (ob == move) {
+                    File file = new File((detailsTable.getValueAt(detailsTable.getSelectedRow(), 4)).toString());
+                    String target = JOptionPane.showInputDialog(frame,
+                            "Enter the destination folder name", "Move File", JOptionPane.QUESTION_MESSAGE);
+                    File targetFile = new File(target + "\\" + file.getName());
+                    try {
+                        if ((new File(target)).exists()) {
+                            if (listeFileModel.getElementAt(0) == " : Niveau Superieur") {
+                                listeFileModel.removeElementAt(detailsTable.getSelectedRow() + 1);
+                                tableModel.removeRow(detailsTable.getSelectedRow());
+                            } else {
+                                listeFileModel.removeElementAt(detailsTable.getSelectedRow());
+                                tableModel.removeRow(detailsTable.getSelectedRow());
+                            }
+                            Files.move(file.toPath(), targetFile.toPath(), REPLACE_EXISTING);
+                        } else {
+                            JOptionPane.showMessageDialog(frame, "File Does Not Exist", "Error", 0);
+                        }
+                    } catch (IOException ex) {
+                        JOptionPane.showMessageDialog(frame, ex.getMessage(), "Error", 0);
+                    }
+                }
+                if (ob == delete) {
+
+                    File file = new File((detailsTable.getValueAt(detailsTable.getSelectedRow(), 4)).toString());
+                    String add = file.getName();
+                    int response = JOptionPane.showConfirmDialog(frame, ("Are you sure you want to delete this file? \n" + add), "Delete File", //add string file name
+                            JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+                    if (response == JOptionPane.YES_OPTION) {
+                        if (listeFileModel.getElementAt(0) == " : Niveau Superieur") {
+                            listeFileModel.removeElementAt(detailsTable.getSelectedRow() + 1);
+                            tableModel.removeRow(detailsTable.getSelectedRow());
+                        } else {
+                            listeFileModel.removeElementAt(detailsTable.getSelectedRow());
+                            tableModel.removeRow(detailsTable.getSelectedRow());
+                        }
+                        file.delete();
+
+                    }
+                }
+                if (ob == search) {
+                    new searchWindow();
+                }
+
+                if (ob == newfold) {
+                    String folderName = JOptionPane.showInputDialog(frame,
+                            "Enter the new folder name", "Create Folder", JOptionPane.QUESTION_MESSAGE);
+                    File dir = new File(currentFile.getPath() + "\\" + folderName);
+                    dir.mkdir();
+                    listeFileModel.addElement(dir);
+                    tableModel.addRow(getData(dir));
+                }
+
+            } catch (IndexOutOfBoundsException bounds) {
+                JOptionPane.showMessageDialog(frame,
+                        "You Need to Select a row",
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        }
+
+    }
+
+    public class TempSortListener implements ActionListener {
+
+        public void actionPerformed(ActionEvent e) {
+            Object ob = e.getSource();
+            if (ob == sortName) {
+                detailsTable.getRowSorter().toggleSortOrder(0);
+            }
+            if (ob == sortSize) {
+                detailsTable.getRowSorter().toggleSortOrder(1);
+            }
+            if (ob == sortDate) {
+                detailsTable.getRowSorter().toggleSortOrder(2);
+            }
+            if (ob == sortExtension) {
+                detailsTable.getRowSorter().toggleSortOrder(5);
+            }
+        }
+
+    }
+
+    public static void findFile(String name, File file) {
+
+        File[] list = file.listFiles(new FileFilter() {
+            @Override
+            public boolean accept(File file) {
+                return !file.isHidden();
+            }
+        });
+        if (list != null) {
+            for (File fil : list) {
+                if (fil.isDirectory()) {
+                    findFile(name, fil);
+                } else if ((fil.getName()).toLowerCase().contains(name)) {
+                    String s = fil.getParentFile() + "\\" + fil.getName() + "\n";
+                    if (!arrayFiles.contains(s)) {
+                        arrayFiles.add(s);
+                    }
+                }
+            }
+        }
+
+    }
+
+    //Methode pour trouver les repertoir qui ont le nom "name "
+    public static void findFolder(String name, File file) {
+
+        File[] list = file.listFiles(new FileFilter() {
+            @Override
+            public boolean accept(File file) {
+                return !file.isHidden();
+            }
+        });
+        if (list != null) {
+            for (File fil : list) {
+                //on peut changer equalsIgnoreCase a equals
+                //si on ne concerne pas au majuscules et miniscules
+                if (fil.getName().equalsIgnoreCase(name)) {
+                    arrayFolders.add(fil);
+
+                } else if (fil.isDirectory()) {
+                    findFolder(name, fil);
+                }
+            }
+        }
+
+    }
+
+}
